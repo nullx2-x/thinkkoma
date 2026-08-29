@@ -1,0 +1,41 @@
+[project]
+name = "thinkkoma"
+version = "0.4.0"
+description = "Autonomous think-tank agent that interprets and solves problems without a human in the loop"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "ThinkKoma Contributors" }]
+dependencies = []
+
+[project.optional-dependencies]
+llm = ["httpx>=0.27,<1"]
+cursor = ["cursor-sdk>=1.0.0"]
+
+[project.scripts]
+thinkkoma = "thinkkoma.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8,<10",
+    "ruff>=0.12,<1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["thinkkoma"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+norecursedirs = [".git", ".thinkkoma", "fixtures", "examples", ".venv"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
