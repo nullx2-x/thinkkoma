@@ -9,9 +9,23 @@ from pathlib import Path
 from thinkkoma import __version__
 from thinkkoma.daemon import run_daemon
 from thinkkoma.drive import PatrolReport, run_patrol
+from thinkkoma.live import LiveReport, run_live, stdout_emitter
 from thinkkoma.loop import run_mission
 from thinkkoma.models import Budget
 from thinkkoma.units import describe_units
+
+_META_FLAGS = {"-h", "--help", "--version"}
+
+
+def _with_default_live(raw: list[str]) -> list[str]:
+    """Bare invocation starts the forever think→run loop."""
+    if not raw:
+        return ["live"]
+    if raw[0] in _META_FLAGS:
+        return raw
+    if raw[0].startswith("-"):
+        return ["live", *raw]
+    return raw
 
 
 def _print_report(report, as_json: bool) -> None:
@@ -60,6 +74,21 @@ def _print_patrol(report: PatrolReport, as_json: bool) -> None:
         sys.stdout.write(f"status: {report.status_path}\n")
 
 
+def _print_live(report: LiveReport, as_json: bool) -> None:
+    if as_json:
+        json.dump(report.to_dict(), sys.stdout, ensure_ascii=False, indent=2)
+        sys.stdout.write("\n")
+        return
+    sys.stdout.write(
+        f"LIVE: stop={report.stop_reason.value} cycles={len(report.cycles)} quiet={report.quiet}\n"
+    )
+    for item in report.cycles:
+        mark = "solved" if item.mission.solved else "unsolved"
+        sys.stdout.write(f"- #{item.cycle} think={item.thought.kind.value} run={mark}\n")
+    if report.status_path:
+        sys.stdout.write(f"status: {report.status_path}\n")
+
+
 def _apply_runtime_flags(args) -> None:
     backend = getattr(args, "backend", None)
     if backend:
@@ -78,6 +107,14 @@ def _exit_patrol(report: PatrolReport) -> int:
     return 0 if report.quiet or all(item.solved for item in report.missions) else 2
 
 
+def _exit_live(report: LiveReport) -> int:
+    if report.stop_reason.value == "interrupted":
+        return 130
+    if not report.cycles:
+        return 0
+    return 0 if all(item.mission.solved for item in report.cycles) else 2
+
+
 def _add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
     parser.add_argument("--backend", choices=["heuristic", "ollama", "local", "openai", "cursor"])
@@ -87,19 +124,54 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true")
 
 
-def main(argv: list[str] | None = None) -> int:
+def _add_live_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--inbox", type=Path)
+    parser.add_argument(
+        "--interval",
+        type=float,
+        default=1.0,
+        help="Seconds to wait after each run before the next think. Default: 1",
+    )
+    parser.add_argument(
+        "--max-cycles",
+        type=int,
+        default=0,
+        help="Stop after N think→run cycles. 0 (default) means forever.",
+    )
+
+
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thinkkoma",
-        description="Fully autonomous think-tank. Finds defects and closes them without a human prompt.",
+        description=(
+            "Fully autonomous think-tank. With no subcommand, starts immediately: "
+            "think → run → next think, forever."
+        ),
+        epilog=(
+            "examples:\n"
+            "  thinkkoma\n"
+            "  thinkkoma live --workspace . --backend ollama\n"
+            "  thinkkoma drive --workspace examples/broken_add\n"
+            "  thinkkoma run 'note.txt に完了と書いて' --workspace .\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--version", action="version", version=f"thinkkoma {__version__}")
     sub = parser.add_subparsers(dest="command")
+
+    live_p = sub.add_parser(
+        "live",
+        aliases=["start"],
+        help="Think → run → next think, forever. Default when no subcommand is given.",
+    )
+    _add_common(live_p)
+    _add_live_flags(live_p)
 
     run_p = sub.add_parser("run", help="Solve one stated problem, or patrol if none is given")
     run_p.add_argument("problem", nargs="?", help="Problem text. Omit to patrol. Use - to read stdin.")
     _add_common(run_p)
 
-    drive_p = sub.add_parser("drive", help="Patrol a workspace with no human instruction")
+    drive_p = sub.add_parser("drive", help="Patrol a workspace with no human instruction until quiet")
     _add_common(drive_p)
     drive_p.add_argument("--inbox", type=Path)
     drive_p.add_argument(
@@ -118,8 +190,13 @@ def main(argv: list[str] | None = None) -> int:
     daemon_p.add_argument("--interval", type=float, default=2.0)
 
     sub.add_parser("units", help="List think-tank units")
+    return parser
 
-    args = parser.parse_args(argv)
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    raw = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(_with_default_live(raw))
     if args.command is None:
         parser.print_help()
         return 0
@@ -130,6 +207,18 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     _apply_runtime_flags(args)
+
+    if args.command in {"live", "start"}:
+        live = run_live(
+            args.workspace,
+            inbox=args.inbox,
+            budget=_budget_from(args),
+            max_cycles=args.max_cycles,
+            interval=args.interval,
+            emitter=None if args.json else stdout_emitter(sys.stdout),
+        )
+        _print_live(live, args.json)
+        return _exit_live(live)
 
     if args.command == "drive":
         patrol = run_patrol(

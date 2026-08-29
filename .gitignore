@@ -10,19 +10,3 @@ examples/inbox/running/
 examples/inbox/done/
 examples/inbox/failed/
 .DS_Store
-
-# Secrets and local credentials
-.env
-.env.*
-!.env.example
-*.pem
-*.key
-*.p12
-*.pfx
-credentials*.json
-secrets*.json
-
-# Local data
-*.sqlite
-*.sqlite3
-*.db

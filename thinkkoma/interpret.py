@@ -67,6 +67,13 @@ def interpret_problem(problem: str, workspace: Path) -> tuple[Goal, list[UnitVot
             confidence=0.88,
             execute_best_idea=False,
         )
+    elif _DIAGNOSE_HINT.search(text) and not _TEST_HINT.search(text):
+        primary = Goal(
+            kind=GoalKind.DIAGNOSE,
+            summary="Produce a diagnosis from the workspace and problem text",
+            success_criteria=["A diagnosis report with a likely cause is written"],
+            confidence=0.7,
+        )
     elif _TEST_HINT.search(text) or _has_tests(files):
         primary = Goal(
             kind=GoalKind.REPAIR_TESTS,
@@ -74,13 +81,6 @@ def interpret_problem(problem: str, workspace: Path) -> tuple[Goal, list[UnitVot
             success_criteria=["pytest or unittest exits 0"],
             confidence=0.86 if _TEST_HINT.search(text) else 0.64,
             notes=[f"indexed {len(files)} files"],
-        )
-    elif _DIAGNOSE_HINT.search(text):
-        primary = Goal(
-            kind=GoalKind.DIAGNOSE,
-            summary="Produce a diagnosis from the workspace and problem text",
-            success_criteria=["A diagnosis report with a likely cause is written"],
-            confidence=0.7,
         )
     elif _IMPLEMENT_HINT.search(text):
         primary = Goal(

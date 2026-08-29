@@ -1,37 +1,76 @@
 # ThinkKoma
 
-人の指示なしで、作業場を巡回し、欠陥を自分で見つけて閉じる自律型シンクタンク・エージェントです。
-
-起動に必要なのはワークスペースだけです。問題文、確認、採用の選択は求めません。
-
-## 完全自律走行
+人の指示なしで、起動した直後から考え、行動し、また考える自律型シンクタンク・エージェントです。
 
 ```text
-thinkkoma drive
-    -> 0号 偵察（テスト失敗・構文・ログ・inbox）
-    -> 信号がなければ quiet で停止（または --watch で再巡回）
-    -> 最も優先度の高い欠陥を自分で問題文化する
-    -> 4号 批評、6号 加点、7号 減点。誤差を工程へ逆伝播
-    -> 規定（oracle/safety）を満たさなければ再施行
-    -> 解けたら次の信号、解けなければ指紋を exhausted にして無限ループしない
-    -> 5号 が outbox / patrol へ提出
+think → run → next think → run → …
 ```
 
+問題文、確認、採用の選択は求めません。ワークスペースを渡して起動するだけです。
+
+## インストールと起動
+
 ```bash
-cd projects/thinkkoma
 uv sync --dev
+uv run thinkkoma
+```
+
+`thinkkoma` にサブコマンドを付けないと、すぐ `live` になります。0号が偵察し、自分で問題を書き、施行し、次の思考に入ります。静穏でも止まりません。止めるのは `Ctrl+C` です。
+
+```text
+think #1 [signal] テストが落ちている。人の指示を待たず原因を解釈して修正せよ。
+run   #1 SOLVED stop=solved
+think #2 [diagnose] 作業場を診断し、人に聞かず残っている欠陥の原因仮説を提出せよ。
+run   #2 SOLVED stop=solved
+think #3 [explore] …
+```
+
+同じ意味の起動:
+
+```bash
+uv run thinkkoma live --workspace .
+uv run thinkkoma start --workspace .
+uv run python -m thinkkoma
+```
+
+回数を区切るなら `--max-cycles`、思考の間隔は `--interval`（既定 1 秒）です。
+
+```bash
+uv run thinkkoma --workspace examples/broken_add --max-cycles 2 --interval 0
+```
+
+ローカル LLM は任意です。無くてもヒューリスティックで偵察と修復ができます。
+
+```bash
+uv run thinkkoma --backend ollama --workspace .
+```
+
+## think → run の一周
+
+```text
+think
+    -> 0号 偵察（テスト失敗・構文・ログ・inbox）
+    -> 信号があれば自分で問題文化する
+    -> 無ければ提案 / 診断 / 探索を順に自分で書く
+    -> `.thinkkoma/think/` に思考を残す
+run
+    -> 4号 批評、6号 加点、7号 減点。誤差を工程へ逆伝播
+    -> 規定（oracle/safety）を満たさなければ再施行
+    -> 5号 が outbox / patrol へ提出
+next think
+    -> 解けた信号は閉じ、停滞した指紋は exhausted
+    -> すぐに次の思考。人を待たない
+```
+
+欠陥を一巡だけ直して静穏で終わりたいときは、従来の巡回を使います。
+
+```bash
 uv run thinkkoma drive --workspace examples/broken_add
 ```
 
-問題文は不要です。落ちているテストを自分で見つけ、直して、静穏（quiet）になったら終わります。常駐するなら:
+`drive` は quiet で停止します。`--watch` は quiet のあと再スキャンし、`--max-idle` / `--max-missions` で止まります。
 
-```bash
-uv run thinkkoma drive --workspace . --watch --backend ollama
-```
-
-`--watch` は quiet のあと再スキャンします。止めるのは `Ctrl+C`、`--max-idle`、`--max-missions` です。
-
-`thinkkoma run` に問題文を書かない場合も、同じ巡回を一度だけ行います。
+`thinkkoma run` に問題文を書かない場合も、同じ巡回を一度だけ行います。問題文を書けばその一件だけです。
 
 ## 自分で見つける信号
 
@@ -43,35 +82,39 @@ uv run thinkkoma drive --workspace . --watch --backend ollama
 | 中 | inbox ファイル | あれば処理（必須ではない） |
 | 低 | `NotImplementedError` / TODO | 検証器があるときだけ実装。なければ提出して次へ |
 
-同じ欠陥で停滞したら指紋を exhausted にし、人間の再指示を待たずに次の信号へ進みます。
+同じ欠陥で停滞したら指紋を exhausted にし、人間の再指示を待たずに次の思考へ進みます。`live` では信号が尽きたあとも、提案・診断・探索を自分で回します。
 
 ## 提供・提案・提出
 
 | 段階 | 成果物 | 行先 |
 | --- | --- | --- |
-| 提供 | 自分で書いた問題、成功条件、原因仮説 | `.thinkkoma/reports/` |
+| 思考 | 自分で書いた次の問題 | `.thinkkoma/think/` |
+| 提供 | 成功条件、原因仮説 | `.thinkkoma/reports/` |
 | 提案 | 順位付き行動案 | `.thinkkoma/outbox/` |
 | 提出 | ミッション JSON、巡回ステータス | `.thinkkoma/outbox/` と `.thinkkoma/patrol/` |
-
-ローカル LLM（Ollama）は任意です。無くてもヒューリスティックで偵察と修復ができます。
 
 ```bash
 export THINKKOMA_BACKEND=ollama
 export THINKKOMA_MODEL=llama3.2
-uv run thinkkoma drive --workspace . --backend ollama
+uv run thinkkoma --workspace . --backend ollama
 ```
 
 ## 止まるタイミング
 
-人が止める場合: `Ctrl+C`。`--watch` なしなら quiet で終了します。
-
-エージェントが自分で止まる場合:
+`live` / `start` / 引数なし: 人が止めるまで永遠です。
 
 | 理由 | いつ |
 | --- | --- |
-| `quiet` | 検証可能な欠陥がもう無い |
+| `Ctrl+C` / `interrupted` | 人が止めた |
+| `cycle_limit` | `--max-cycles` に達した（既定 0 = 無制限） |
+
+一件のミッションや `drive` の巡回は、これまでどおり自分で止まります。
+
+| 理由 | いつ |
+| --- | --- |
+| `quiet` | `drive` で検証可能な欠陥がもう無い |
 | `patrol_complete` | 残信号が exhausted、またはミッション上限 |
-| `solved` / `submitted` | 一件のミッションが証跡で閉じた（巡回は次へ） |
+| `solved` / `submitted` | 一件のミッションが証跡で閉じた（`live` は次の think へ） |
 | `budget_attempts` / `budget_steps` / `budget_time` | 一件の予算切れ → exhausted にして次へ |
 | `stalled` | 同じ失敗が続く → exhausted にして次へ |
 | `denied` | 危険操作の連続拒否 → exhausted にして次へ |

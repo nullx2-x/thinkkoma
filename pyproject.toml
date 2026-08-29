@@ -1,11 +1,11 @@
 [project]
 name = "thinkkoma"
-version = "0.4.0"
-description = "Autonomous think-tank agent that interprets and solves problems without a human in the loop"
+version = "0.5.0"
+description = "Autonomous think-tank agent: think → run → next think, without a human in the loop"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
-authors = [{ name = "ThinkKoma Contributors" }]
+authors = [{ name = "jack-low" }]
 dependencies = []
 
 [project.optional-dependencies]

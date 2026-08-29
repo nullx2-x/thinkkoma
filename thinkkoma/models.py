@@ -44,6 +44,8 @@ class StopReason(StrEnum):
     DENIED = "denied"
     QUIET = "quiet"
     PATROL_COMPLETE = "patrol_complete"
+    CYCLE_LIMIT = "cycle_limit"
+    INTERRUPTED = "interrupted"
 
 
 @dataclass(frozen=True)
